@@ -41,7 +41,6 @@
     margin-bottom: 10px;
   }
 
-  /* Connect bar */
   .connect-bar {
     display: flex;
     align-items: center;
@@ -58,9 +57,9 @@
     transition: opacity 0.15s;
   }
   .btn:active { opacity: 0.7; }
-  .btn-connect  { background: #0f3460; color: #53d8fb; border: 1px solid #53d8fb; }
+  .btn-connect    { background: #0f3460; color: #53d8fb; border: 1px solid #53d8fb; }
   .btn-disconnect { background: #3d1a1a; color: #ff6b6b; border: 1px solid #ff6b6b; }
-  .btn-reset    { background: #2a1a3d; color: #c084fc; border: 1px solid #c084fc; }
+  .btn-reset      { background: #2a1a3d; color: #c084fc; border: 1px solid #c084fc; }
 
   .status-dot {
     width: 10px; height: 10px;
@@ -78,7 +77,6 @@
     flex: 1;
   }
 
-  /* Team + hints row */
   .team-row {
     display: flex;
     gap: 10px;
@@ -116,7 +114,6 @@
   .hints-control {
     display: flex;
     align-items: center;
-    gap: 0;
     background: #0d1b2a;
     border: 1px solid #0f3460;
     border-radius: 8px;
@@ -149,7 +146,6 @@
     color: #ffffff;
   }
 
-  /* Fase badge */
   .fase-badge {
     display: inline-block;
     padding: 4px 14px;
@@ -165,7 +161,6 @@
   .fase-EINDSCHERM { background: #3a2a0a; color: #fbbf24; border: 1px solid #fbbf24; }
   .fase-IDLE       { background: #2a2a2a; color: #888;    border: 1px solid #555; }
 
-  /* Timer groot */
   .timer-big {
     font-size: 48px;
     font-weight: 700;
@@ -185,7 +180,6 @@
     letter-spacing: 1px;
   }
 
-  /* Deur tijden */
   .deur-grid {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
@@ -216,10 +210,9 @@
     letter-spacing: 1px;
   }
 
-  .deur-time.open { color: #4ade80; }
+  .deur-time.open  { color: #4ade80; }
   .deur-time.wacht { color: #555; }
 
-  /* Log */
   .log-box {
     background: #0d1b2a;
     border: 1px solid #0f3460;
@@ -234,14 +227,12 @@
 
   .log-box p { margin: 0; line-height: 1.6; }
 
-  /* Reset knop */
   .reset-row {
     display: flex;
     justify-content: flex-end;
     margin-top: 6px;
   }
 
-  /* Notities */
   textarea {
     background: #0d1b2a;
     border: 1px solid #0f3460;
@@ -305,7 +296,6 @@
 <div class="card">
   <div class="card-title">Live status</div>
   <div id="fase-badge" class="fase-badge fase-IDLE">IDLE</div>
-
   <div class="timer-big" id="timer-display">--:--</div>
   <div class="timer-label">tijd sinds start</div>
 </div>
@@ -345,12 +335,12 @@
 </div>
 
 <script>
-  let port = null;
-  let reader = null;
-  let hints = 0;
-  let buffer = '';
+  let port      = null;
+  let reader    = null;
+  let hints     = 0;
+  let buffer    = '';
+  let gameEnded = false;  // bevriest het scherm na EINDSCHERM
 
-  // Check Web Serial beschikbaar
   if (!('serial' in navigator)) {
     document.getElementById('no-serial-msg').style.display = 'block';
     document.getElementById('btn-connect').disabled = true;
@@ -361,11 +351,9 @@
       await disconnectSerial();
       return;
     }
-
     try {
       port = await navigator.serial.requestPort();
       await port.open({ baudRate: 9600 });
-
       setConnected(true);
       readLoop();
     } catch (e) {
@@ -376,21 +364,21 @@
   async function disconnectSerial() {
     try {
       if (reader) { await reader.cancel(); reader = null; }
-      if (port)   { await port.close();   port = null; }
+      if (port)   { await port.close();    port   = null; }
     } catch(e) {}
     setConnected(false);
   }
 
   function setConnected(yes) {
-    document.getElementById('dot').className        = 'status-dot ' + (yes ? 'connected' : 'disconnected');
-    document.getElementById('conn-status').textContent = yes ? 'Verbonden' : 'Niet verbonden';
-    document.getElementById('btn-connect').textContent = yes ? 'Verbreken' : 'Verbinden';
-    document.getElementById('btn-connect').className   = 'btn ' + (yes ? 'btn-disconnect' : 'btn-connect');
+    document.getElementById('dot').className            = 'status-dot ' + (yes ? 'connected' : 'disconnected');
+    document.getElementById('conn-status').textContent  = yes ? 'Verbonden' : 'Niet verbonden';
+    document.getElementById('btn-connect').textContent  = yes ? 'Verbreken' : 'Verbinden';
+    document.getElementById('btn-connect').className    = 'btn ' + (yes ? 'btn-disconnect' : 'btn-connect');
   }
 
   async function readLoop() {
-    const decoder = new TextDecoderStream();
-    port.readable.pipeTo(decoder.writable);
+    const decoder  = new TextDecoderStream();
+    const pipeDone = port.readable.pipeTo(decoder.writable);
     reader = decoder.readable.getReader();
 
     try {
@@ -410,28 +398,34 @@
       addLog('Verbinding verbroken: ' + e.message);
       setConnected(false);
     }
+
+    await pipeDone.catch(() => {});
   }
 
   function processLine(line) {
-    // Alleen DATA regels verwerken
-    if (!line.startsWith('DATA;')) {
-      // Toon andere regels in het log (personeelscherm tekst)
+    if (line.startsWith('DATA;')) {
+      // Na eindscherm: DATA regels negeren zodat scherm bevroren blijft
+      if (gameEnded) return;
+
+      const parts = {};
+      line.split(';').forEach(p => {
+        const eq = p.indexOf('=');
+        if (eq !== -1) parts[p.substring(0, eq)] = p.substring(eq + 1);
+      });
+
+      if (parts.SPEL)  updateFase(parts.SPEL);
+      if (parts.TIJD)  updateTimer(parts.TIJD);
+      if (parts.DEUR1) updateDeur('deur1', parts.DEUR1);
+      if (parts.DEUR2) updateDeur('deur2', parts.DEUR2);
+      if (parts.DEUR3) updateDeur('deur3', parts.DEUR3);
+
+      // Bevries scherm zodra EINDSCHERM bereikt is
+      if (parts.SPEL === 'EINDSCHERM') gameEnded = true;
       return;
     }
 
+    // Alle andere regels (events) loggen
     addLog(line);
-
-    const parts = {};
-    line.split(';').forEach(p => {
-      const eq = p.indexOf('=');
-      if (eq !== -1) parts[p.substring(0, eq)] = p.substring(eq + 1);
-    });
-
-    if (parts.SPEL)  updateFase(parts.SPEL);
-    if (parts.TIJD)  updateTimer(parts.TIJD);
-    if (parts.DEUR1) updateDeur('deur1', parts.DEUR1);
-    if (parts.DEUR2) updateDeur('deur2', parts.DEUR2);
-    if (parts.DEUR3) updateDeur('deur3', parts.DEUR3);
   }
 
   function updateFase(spel) {
@@ -447,11 +441,7 @@
   function updateDeur(id, tijd) {
     const el = document.getElementById(id);
     el.textContent = tijd;
-    if (tijd === '--:--') {
-      el.className = 'deur-time wacht';
-    } else {
-      el.className = 'deur-time open';
-    }
+    el.className   = 'deur-time ' + (tijd === '--:--' ? 'wacht' : 'open');
   }
 
   function changeHints(delta) {
@@ -461,7 +451,7 @@
 
   function addLog(msg) {
     const log = document.getElementById('log');
-    const p = document.createElement('p');
+    const p   = document.createElement('p');
     const now = new Date();
     const ts  = now.getHours().toString().padStart(2,'0') + ':' +
                 now.getMinutes().toString().padStart(2,'0') + ':' +
@@ -469,12 +459,12 @@
     p.textContent = ts + '  ' + msg;
     log.appendChild(p);
     log.scrollTop = log.scrollHeight;
-
-    // Max 100 regels bewaren
-    while (log.children.length > 100) log.removeChild(log.firstChild);
+    while (log.children.length > 50) log.removeChild(log.firstChild);
   }
 
   function resetDisplay() {
+    gameEnded = false;  // scherm ontgrendelen voor nieuw spel
+
     document.getElementById('timer-display').textContent = '--:--';
     document.getElementById('deur1').textContent = '--:--';
     document.getElementById('deur2').textContent = '--:--';
@@ -483,10 +473,10 @@
     document.getElementById('deur2').className = 'deur-time wacht';
     document.getElementById('deur3').className = 'deur-time wacht';
     document.getElementById('fase-badge').textContent = 'IDLE';
-    document.getElementById('fase-badge').className = 'fase-badge fase-IDLE';
-    document.getElementById('teamnaam').value = '';
-    document.getElementById('notities').value = '';
-    document.getElementById('log').innerHTML = '';
+    document.getElementById('fase-badge').className   = 'fase-badge fase-IDLE';
+    document.getElementById('teamnaam').value  = '';
+    document.getElementById('notities').value  = '';
+    document.getElementById('log').innerHTML   = '';
     hints = 0;
     document.getElementById('hints-val').textContent = '0';
     addLog('Nieuw spel gestart');
