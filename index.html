@@ -403,6 +403,13 @@
   }
 
   function processLine(line) {
+    // Bevries scherm direct als MEGA reset stuurt
+    if (line === 'SCHERM_BEVRIEZEN') {
+      gameEnded = true;
+      addLog('Scherm bevroren — wacht op nieuw spel');
+      return;
+    }
+
     if (line.startsWith('DATA;')) {
       // Na eindscherm: DATA regels negeren zodat scherm bevroren blijft
       if (gameEnded) return;
