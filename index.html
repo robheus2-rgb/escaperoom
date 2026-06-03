@@ -339,7 +339,7 @@
   let reader    = null;
   let hints     = 0;
   let buffer    = '';
-  let gameEnded = false;  // bevriest het scherm na EINDSCHERM
+  let gameEnded = false;
 
   if (!('serial' in navigator)) {
     document.getElementById('no-serial-msg').style.display = 'block';
@@ -403,15 +403,15 @@
   }
 
   function processLine(line) {
-    // Bevries scherm direct als MEGA reset stuurt
+    // Bevries scherm alleen op SCHERM_BEVRIEZEN (= rode knop ingedrukt)
     if (line === 'SCHERM_BEVRIEZEN') {
       gameEnded = true;
-      addLog('Scherm bevroren — wacht op nieuw spel');
+      addLog('Scherm bevroren — totale tijd vastgelegd');
       return;
     }
 
     if (line.startsWith('DATA;')) {
-      // Na eindscherm: DATA regels negeren zodat scherm bevroren blijft
+      // Na rode knop: DATA regels negeren zodat scherm bevroren blijft
       if (gameEnded) return;
 
       const parts = {};
@@ -426,12 +426,11 @@
       if (parts.DEUR2) updateDeur('deur2', parts.DEUR2);
       if (parts.DEUR3) updateDeur('deur3', parts.DEUR3);
 
-      // Bevries scherm zodra EINDSCHERM bereikt is
-      if (parts.SPEL === 'EINDSCHERM') gameEnded = true;
+      // Geen gameEnded=true hier meer — alleen SCHERM_BEVRIEZEN doet dat
       return;
     }
 
-    // Alle andere regels (events) loggen
+    // Alle andere regels loggen
     addLog(line);
   }
 
@@ -470,7 +469,7 @@
   }
 
   function resetDisplay() {
-    gameEnded = false;  // scherm ontgrendelen voor nieuw spel
+    gameEnded = false;
 
     document.getElementById('timer-display').textContent = '--:--';
     document.getElementById('deur1').textContent = '--:--';
