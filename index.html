@@ -213,6 +213,26 @@
   .deur-time.open  { color: #4ade80; }
   .deur-time.wacht { color: #555; }
 
+  /* Vlaggen grid spel 1 */
+  .flags-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .flag-item {
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    transition: background 0.3s, color 0.3s;
+  }
+
+  .flag-item.goed  { background: #1a3a1a; color: #4ade80; border: 1px solid #4ade80; }
+  .flag-item.fout  { background: #3a1a1a; color: #ff6b6b; border: 1px solid #ff6b6b; }
+  .flag-item.leeg  { background: #1e1e2e; color: #555;    border: 1px solid #333; }
+
   .log-box {
     background: #0d1b2a;
     border: 1px solid #0f3460;
@@ -300,6 +320,12 @@
   <div class="timer-label">tijd sinds start</div>
 </div>
 
+<!-- Vlaggen spel 1 — alleen zichtbaar tijdens SPEL1 -->
+<div class="card" id="flags-card" style="display:none;">
+  <div class="card-title">Spel 1 — Vlaggen status</div>
+  <div class="flags-grid" id="flags-grid"></div>
+</div>
+
 <!-- Deur tijden -->
 <div class="card">
   <div class="card-title">Deuren geopend om</div>
@@ -347,10 +373,7 @@
   }
 
   async function connectSerial() {
-    if (port) {
-      await disconnectSerial();
-      return;
-    }
+    if (port) { await disconnectSerial(); return; }
     try {
       port = await navigator.serial.requestPort();
       await port.open({ baudRate: 9600 });
@@ -370,23 +393,21 @@
   }
 
   function setConnected(yes) {
-    document.getElementById('dot').className            = 'status-dot ' + (yes ? 'connected' : 'disconnected');
-    document.getElementById('conn-status').textContent  = yes ? 'Verbonden' : 'Niet verbonden';
-    document.getElementById('btn-connect').textContent  = yes ? 'Verbreken' : 'Verbinden';
-    document.getElementById('btn-connect').className    = 'btn ' + (yes ? 'btn-disconnect' : 'btn-connect');
+    document.getElementById('dot').className           = 'status-dot ' + (yes ? 'connected' : 'disconnected');
+    document.getElementById('conn-status').textContent = yes ? 'Verbonden' : 'Niet verbonden';
+    document.getElementById('btn-connect').textContent = yes ? 'Verbreken' : 'Verbinden';
+    document.getElementById('btn-connect').className   = 'btn ' + (yes ? 'btn-disconnect' : 'btn-connect');
   }
 
   async function readLoop() {
     const decoder  = new TextDecoderStream();
     const pipeDone = port.readable.pipeTo(decoder.writable);
     reader = decoder.readable.getReader();
-
     try {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += value;
-
         let nl;
         while ((nl = buffer.indexOf('\n')) !== -1) {
           const line = buffer.substring(0, nl).trim();
@@ -398,12 +419,11 @@
       addLog('Verbinding verbroken: ' + e.message);
       setConnected(false);
     }
-
     await pipeDone.catch(() => {});
   }
 
   function processLine(line) {
-    // Bevries scherm alleen op SCHERM_BEVRIEZEN (= rode knop ingedrukt)
+    // Bevries scherm direct bij rode knop druk
     if (line === 'SCHERM_BEVRIEZEN') {
       gameEnded = true;
       addLog('Scherm bevroren — totale tijd vastgelegd');
@@ -411,7 +431,6 @@
     }
 
     if (line.startsWith('DATA;')) {
-      // Na rode knop: DATA regels negeren zodat scherm bevroren blijft
       if (gameEnded) return;
 
       const parts = {};
@@ -425,12 +444,19 @@
       if (parts.DEUR1) updateDeur('deur1', parts.DEUR1);
       if (parts.DEUR2) updateDeur('deur2', parts.DEUR2);
       if (parts.DEUR3) updateDeur('deur3', parts.DEUR3);
+      if (parts.FLAGS) updateFlags(parts.FLAGS);
 
-      // Geen gameEnded=true hier meer — alleen SCHERM_BEVRIEZEN doet dat
+      // Vlaggen kaart tonen alleen tijdens SPEL1
+      const flagsCard = document.getElementById('flags-card');
+      if (parts.SPEL === 'SPEL1') {
+        flagsCard.style.display = 'block';
+      } else {
+        flagsCard.style.display = 'none';
+      }
+
       return;
     }
 
-    // Alle andere regels loggen
     addLog(line);
   }
 
@@ -448,6 +474,37 @@
     const el = document.getElementById(id);
     el.textContent = tijd;
     el.className   = 'deur-time ' + (tijd === '--:--' ? 'wacht' : 'open');
+  }
+
+  function updateFlags(flagsStr) {
+    const grid = document.getElementById('flags-grid');
+    // Bouw grid opnieuw op als het leeg is
+    const items = flagsStr.split(',');
+    if (grid.children.length !== items.length) {
+      grid.innerHTML = '';
+      items.forEach((item, i) => {
+        const div = document.createElement('div');
+        div.className = 'flag-item leeg';
+        div.id = 'flag-' + i;
+        grid.appendChild(div);
+      });
+    }
+    items.forEach((item, i) => {
+      const colon = item.lastIndexOf(':');
+      if (colon === -1) return;
+      const naam   = item.substring(0, colon);
+      const status = item.substring(colon + 1);
+      const el = document.getElementById('flag-' + i);
+      if (!el) return;
+      el.textContent = naam;
+      if (status === 'G') {
+        el.className = 'flag-item goed';
+      } else if (status === 'F') {
+        el.className = 'flag-item fout';
+      } else {
+        el.className = 'flag-item leeg';
+      }
+    });
   }
 
   function changeHints(delta) {
@@ -480,6 +537,8 @@
     document.getElementById('deur3').className = 'deur-time wacht';
     document.getElementById('fase-badge').textContent = 'IDLE';
     document.getElementById('fase-badge').className   = 'fase-badge fase-IDLE';
+    document.getElementById('flags-card').style.display = 'none';
+    document.getElementById('flags-grid').innerHTML = '';
     document.getElementById('teamnaam').value  = '';
     document.getElementById('notities').value  = '';
     document.getElementById('log').innerHTML   = '';
